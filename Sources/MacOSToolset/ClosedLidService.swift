@@ -1,0 +1,204 @@
+import Foundation
+import Combine
+import ServiceManagement
+import ToolsetCore
+import ClosedLidSupport
+import ClosedLidIPC
+
+@MainActor final class ClosedLidService: ObservableObject {
+    @Published private(set) var status = ClosedLidStatus()
+    private let service = SMAppService.daemon(plistName: ClosedLidConstants.plist)
+    private let intent = ClosedLidClientIntent()
+    private var connection: NSXPCConnection?
+    private var session: String?
+    private var heartbeat: Timer?
+    private var mightOwnSession = false
+    private var enabling = false
+    private var removing = false
+    var requiresApproval: Bool { service.status == .requiresApproval }
+    var registered: Bool { service.status != .notRegistered && service.status != .notFound }
+    var title: String {
+        switch status.phase {
+        case .off: return status.baselineDisabled == true ? "Выключен · системный сон запрещён извне" : "Выключен"
+        case .active: return "Активен · батарея и зарядка"
+        case .restoring: return "Восстановление сна…"
+        case .error: return "Ошибка · требуется проверка"
+        case .externalChange: return "Остановлен · настройка изменена извне"
+        case .connecting: return "Подключение…"
+        case .requiresApproval: return "Требуется разрешение macOS"
+        }
+    }
+    func start(preferredEnabled: Bool) {
+        if preferredEnabled { Task { await setEnabled(true) } }
+    }
+    func openApprovalSettings() { SMAppService.openSystemSettingsLoginItems() }
+    func refreshApproval() {
+        if intent.enabled && status.phase == .requiresApproval && service.status == .enabled && !enabling {
+            Task { await setEnabled(true) }
+        }
+    }
+    private func connect() throws -> NSXPCConnection {
+        if let connection { return connection }
+        let helperURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/HelperTools/ClosedLidHelper")
+        let hash = try CodeIdentity.verifiedHash(at: helperURL, identifier: ClosedLidConstants.service)
+        let peer = NSXPCConnection(machServiceName: ClosedLidConstants.service, options: .privileged)
+        peer.remoteObjectInterface = NSXPCInterface(with: ClosedLidHelperProtocol.self)
+        peer.setCodeSigningRequirement(try CodeIdentity.requirement(identifier: ClosedLidConstants.service, hash: hash))
+        peer.invalidationHandler = { [weak self, weak peer] in
+            Task { @MainActor in
+                guard let self, self.connection === peer else { return }
+                self.connection = nil; self.session = nil; self.heartbeat?.invalidate()
+                if self.intent.enabled { self.status = ClosedLidStatus(.error, message: "Связь с помощником потеряна. Он должен восстановить сон; включите режим повторно после проверки.") }
+            }
+        }
+        peer.interruptionHandler = { [weak peer] in peer?.invalidate() }
+        peer.resume(); connection = peer; return peer
+    }
+    private func disconnect() {
+        let peer = connection; connection = nil; session = nil; peer?.invalidate()
+    }
+    private func call<T>(_ peer: NSXPCConnection, _ send: @escaping (ClosedLidHelperProtocol, @escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let gate = CompletionGate()
+            let finish: (Result<T, Error>) -> Void = { result in
+                if gate.claim() { continuation.resume(with: result) }
+            }
+            guard let proxy = peer.remoteObjectProxyWithErrorHandler({ finish(.failure($0)) }) as? ClosedLidHelperProtocol else {
+                finish(.failure(lidError("Не удалось подключиться к системному помощнику."))); return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                if gate.claim() { peer.invalidate(); continuation.resume(throwing: lidError("Помощник не ответил за 8 секунд. Состояние сна требует проверки.")) }
+            }
+            send(proxy, finish)
+        }
+    }
+    nonisolated private static func decode(_ data: Data?, _ error: String?) throws -> ClosedLidStatus {
+        if let error { throw lidError(error) }
+        guard let data else { throw lidError("Помощник вернул пустое состояние.") }
+        return try JSONDecoder().decode(ClosedLidStatus.self, from: data)
+    }
+    private func read(_ peer: NSXPCConnection) async throws -> ClosedLidStatus {
+        try await call(peer) { proxy, finish in
+            proxy.status { data, error in finish(Result { try Self.decode(data, error) }) }
+        }
+    }
+    func setEnabled(_ enabled: Bool) async {
+        if removing || (enabled && enabling) { return }
+        if !enabled {
+            do { try await shutdown() } catch { if !intent.enabled { status = ClosedLidStatus(.error, message: error.localizedDescription) } }
+            return
+        }
+        if status.phase == .restoring { disconnect() }
+        let generation = intent.request(true)
+        heartbeat?.invalidate(); enabling = true
+        defer { enabling = false }
+        status = ClosedLidStatus(.connecting)
+        do {
+            if service.status == .notRegistered || service.status == .notFound { try service.register() }
+            guard service.status == .enabled else {
+                status = ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .error,
+                                         message: "Одобрите системный помощник в настройках macOS и вернитесь в приложение.")
+                return
+            }
+            let peer = try connect()
+            mightOwnSession = true
+            let response: (String, ClosedLidStatus) = try await call(peer) { proxy, finish in
+                proxy.begin { token, data, error in
+                    finish(Result {
+                        let state = try Self.decode(data, error)
+                        guard let token, UUID(uuidString: token) != nil, state.phase == .active else { throw lidError("Помощник не подтвердил активную сессию.") }
+                        return (token, state)
+                    })
+                }
+            }
+            guard intent.accepts(generation) else {
+                // Ending this exact old session cannot disable a newer owner's session.
+                _ = try? await end(peer, token: response.0)
+                return
+            }
+            session = response.0; status = response.1
+            heartbeat = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+                Task { @MainActor in await self?.renew(generation: generation) }
+            }
+        } catch {
+            if intent.accepts(generation) {
+                disconnect()
+                status = ClosedLidStatus(.error, message: error.localizedDescription)
+            }
+        }
+    }
+    private func end(_ peer: NSXPCConnection, token: String) async throws -> ClosedLidStatus {
+        try await call(peer) { proxy, finish in
+            proxy.end(session: token) { data, error in finish(Result { try Self.decode(data, error) }) }
+        }
+    }
+    private func renew(generation: UInt64) async {
+        guard intent.accepts(generation), let peer = connection, let token = session else { return }
+        do {
+            let result: ClosedLidStatus = try await call(peer) { proxy, finish in
+                proxy.renew(session: token) { data, error in finish(Result { try Self.decode(data, error) }) }
+            }
+            guard intent.accepts(generation) else { return }
+            status = result
+            if result.phase != .active { heartbeat?.invalidate() }
+        } catch {
+            guard intent.accepts(generation) else { return }
+            heartbeat?.invalidate(); disconnect()
+            status = ClosedLidStatus(.error, message: error.localizedDescription)
+        }
+    }
+    func shutdown() async throws {
+        let generation = intent.request(false); heartbeat?.invalidate()
+        guard mightOwnSession else { disconnect(); status = ClosedLidStatus(); return }
+        status = ClosedLidStatus(.restoring)
+        if let peer = connection, let token = session {
+            if let result = try? await end(peer, token: token), result.phase == .off || result.phase == .externalChange {
+                guard intent.generation == generation else { return }
+                status = result; mightOwnSession = false; disconnect(); return
+            }
+        }
+        guard intent.generation == generation else { return }
+        disconnect() // Forces owner-loss cleanup if a begin was in flight or a reply was lost.
+        guard service.status == .enabled else { throw lidError("Помощник отключён в macOS; восстановление сна не подтверждено. Верните ему разрешение и повторите отключение режима.") }
+        let peer = try connect()
+        for _ in 0..<16 {
+            let result = try await read(peer)
+            guard intent.generation == generation else { return }
+            if result.phase == .off || result.phase == .externalChange {
+                guard intent.generation == generation else { return }
+                status = result; mightOwnSession = false; disconnect(); return
+            }
+            if result.phase == .error { throw lidError(result.message ?? "Не удалось восстановить сон.") }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+        throw lidError("Восстановление сна ещё не подтверждено. Повторите отключение режима.")
+    }
+    func inspect() async throws -> ClosedLidStatus {
+        guard service.status == .enabled else {
+            return ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .off,
+                                   message: "Служба: \(service.status.rawValue)")
+        }
+        return try await read(connect())
+    }
+    func removeHelper() async throws {
+        guard !removing else { throw lidError("Удаление помощника уже выполняется.") }
+        removing = true
+        defer { removing = false }
+        try await shutdown()
+        // Every removal checks global recovery, even when this process never owned a lease.
+        guard service.status == .enabled else {
+            if service.status == .notRegistered { return }
+            throw lidError("Для проверки восстановления сна верните помощнику разрешение в macOS.")
+        }
+        let peer = try connect()
+        let restored: ClosedLidStatus = try await call(peer) { proxy, finish in
+            proxy.prepareRemoval { data, error in finish(Result { try Self.decode(data, error) }) }
+        }
+        guard restored.phase == .off || restored.phase == .externalChange else {
+            throw lidError("Помощник не подтвердил завершение восстановления сна.")
+        }
+        try await service.unregister()
+        disconnect()
+        status = ClosedLidStatus(.off, message: "Помощник отключён. Защищённая запись подписи сохранена; очистка для новой версии требует администратора.")
+    }
+}

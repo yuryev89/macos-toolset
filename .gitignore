@@ -1,0 +1,13 @@
+.build*/
+dist/
+.DS_Store
+__pycache__/
+*.pyc
+.superpowers/
+.env
+.env.*
+*.p12
+*.pfx
+*.p8
+*.key
+*.pem

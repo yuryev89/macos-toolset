@@ -1,0 +1,91 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Release build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - name: Verify tag and source commit
+        run: |
+          python3 scripts/release.py metadata --tag "$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$(uname -m)" = "${{ matrix.arch }}"
+      - name: Tests and native system checks
+        run: ./scripts/check.sh
+      - name: Build, package and verify
+        run: ./scripts/package-release.sh "$RELEASE_TAG"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    name: Publish stable release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify assets and prepare notes
+        run: |
+          VERSION="$(python3 scripts/release.py metadata --tag "$RELEASE_TAG" --field version)"
+          for ARCH in arm64 x86_64; do
+            test -f "release-assets/macOS-Toolset-$VERSION-$ARCH.zip"
+            test -f "release-assets/macOS-Toolset-$VERSION-$ARCH.json"
+            (cd release-assets && sha256sum -c "macOS-Toolset-$VERSION-$ARCH.sha256")
+          done
+          python3 scripts/release.py checksums release-assets/*.zip release-assets/*.json > release-assets/SHA256SUMS
+          python3 scripts/release.py notes "$VERSION" > release-notes.md
+          printf '\nBuild and verification run: %s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> release-notes.md
+      - name: Create complete draft, then publish normal release
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > existing-release.txt 2>/dev/null; then
+            test "$(cat existing-release.txt)" = true || { echo 'Published releases are immutable in this workflow. Use a new version.' >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "macOS Toolset ${RELEASE_TAG#v}" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/*.zip release-assets/*.json release-assets/SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --prerelease=false --latest

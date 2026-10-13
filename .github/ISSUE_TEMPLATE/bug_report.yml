@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible problem
+title: '[Bug] '
+body:
+  - type: input
+    id: version
+    attributes:
+      label: App version and macOS version
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Mac architecture
+      options: [Apple Silicon, Intel]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps, expected result and actual result
+      description: For sleep problems, include power source, lid state and displayed helper status. Remove private paths and workplace details.
+    validations:
+      required: true
