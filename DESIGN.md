@@ -1,159 +1,162 @@
-# macOS Toolset — спецификация первой версии
+# macOS Toolset: first-version specification
 
-Дата: 2026-09-07
-Статус: согласовано пользователем; реализация выполнена, ограничения проверки перечислены в VERIFICATION.md.
+Date: 2026-09-07
+Status: approved by the user and implemented. Verification limitations are listed in [VERIFICATION.md](VERIFICATION.md).
 
-## Цель и границы
+## Purpose and scope
 
-Отдельное нативное приложение на Swift/SwiftUI с иконкой в строке меню macOS. Первая версия объединяет монитор накопления zombie-процессов и управление запретом сна. Приложение должно запускаться автоматически при входе пользователя, сохранять настройки и позволять независимо отключать оба модуля.
+A standalone native Swift/SwiftUI app with a macOS menu bar icon. The first version combines a zombie-process accumulation monitor with sleep prevention controls. The app should launch automatically at login, save preferences, and allow each module to be disabled independently.
 
-Монитор предназначен для обнаружения устойчивого накопления zombie-процессов у одного родителя и сохранения пригодной для диагностики информации. Он не обещает устанавливать первопричину сбоя стороннего ПО.
+The monitor detects persistent zombie accumulation under a single parent and saves useful diagnostic information. It does not promise to identify the root cause of third-party software failures.
 
-Не входят в первую версию: универсальное обнаружение любых зависших приложений, автоматическое завершение процессов, административный daemon, удалённая телеметрия, облачная синхронизация, магазин плагинов и таймер запрета сна.
+The original first-version scope excludes general detection of all unresponsive apps, automatic process termination, an administrative daemon, remote telemetry, cloud synchronization, a plugin marketplace, and a sleep prevention timer. The closed-lid extension described below adds a separate administrative helper.
 
-## Согласованные требования
+## Agreed requirements
 
-- Нативный интерфейс в строке меню.
-- Монитор включён по умолчанию; его можно отключить.
-- Проверка каждые 5 минут.
-- Порог: 40 или более zombie у одного родительского процесса.
-- Уведомление после трёх последовательных успешных проверок с превышением порога у того же родителя.
-- Обычно это означает 10–15 минут от появления устойчивой проблемы до уведомления.
-- Диагностика сохраняется автоматически локально; срок хранения — 30 дней; есть экспорт для IT.
-- Завершение родителя возможно только после подтверждения. Принудительное завершение — отдельное действие с отдельным подтверждением.
-- Перезапуск доступен только там, где приложение может выполнить его штатно.
-- Два режима запрета сна: компьютер работает с возможностью погасить экран; компьютер и экран остаются активными.
-- Режим действует до ручного отключения, без таймера.
-- Восстанавливается последний выбранный режим, включая выключенное состояние.
-- Автозапуск при входе включён по умолчанию, с возможностью отключить его в настройках и средствами macOS.
+- Native menu bar interface.
+- Monitoring enabled by default, with an off option.
+- A check every five minutes.
+- Threshold: at least 40 zombies under one parent process.
+- Notification after three consecutive successful checks at or above the threshold for the same parent.
+- This normally means 10–15 minutes between the onset of a persistent problem and notification.
+- Diagnostics saved automatically and locally, with 30-day retention and export for IT.
+- Parent termination only after confirmation. Force termination is a separate action with separate confirmation.
+- Restart only where the app supports the normal restart procedure.
+- Two sleep prevention modes: keep the computer awake while allowing the display to turn off, or keep both awake.
+- Mode remains active until manually disabled, without a timer.
+- Restore the last selected mode, including off.
+- Launch at login enabled by default, with controls in the app and macOS settings.
 
-## Интерфейс
+## Interface
 
-Иконка открывает компактное меню:
+The icon opens a compact menu:
 
-1. Статус мониторинга: работает, отключён, обнаружена проблема или ошибка проверки.
-2. Общее число zombie в последней успешной проверке, время проверки и число проблемных родителей.
-3. Переход к списку инцидентов и отчётам.
-4. Взаимоисключающий выбор: «Запрет сна выключен», «Не засыпать», «Не засыпать + экран».
-5. Настройки, экспорт диагностики и выход из приложения.
+1. Monitoring status: running, disabled, problem detected, or check failed.
+2. Total zombie count from the last successful check, check time, and number of affected parents.
+3. Access to incidents and reports.
+4. Mutually exclusive sleep choices: off, keep computer awake, or keep computer and display awake.
+5. Settings, diagnostic export, and quit.
 
-Уведомление открывает карточку конкретного инцидента, а не выполняет действие над процессом. Карточка показывает родителя, PID, путь, количество zombie, динамику, время наблюдений и актуальность данных. Доступные действия: сохранить отчёт, завершить родителя, принудительно завершить и, для поддерживаемого GUI-приложения, перезапустить.
+A notification opens the corresponding incident card rather than acting on a process. The card shows the parent, PID, path, zombie count, trend, observation times, and data freshness. Available actions are saving a report, terminating the parent, force termination, and restarting a supported GUI app.
 
-Текст подтверждения объясняет, что завершение родителя может прервать его работу и повлиять на связанные приложения. Для Cisco это может затронуть Posture/VPN; приложение не обещает, что завершение компонента безопасно для подключения.
+Confirmation explains that terminating the parent may interrupt its work and affect related apps. For Cisco components, this may affect Posture/VPN; the app does not promise that terminating a component is safe for connectivity.
 
-Интерфейс первой версии — на русском языке. Рабочее название — «macOS Toolset».
+The first version's interface is in Russian. The working name is macOS Toolset. This specification uses English descriptions of the controls.
 
-## Монитор процессов
+## Process monitor
 
-### Сбор данных
+### Data collection
 
-Первый снимок выполняется при запуске или включении модуля, следующие — через 5 минут. Снимки не перекрываются. Сбор использует системные API внутри процесса приложения и не создаёт отдельный shell или ps для каждого опроса. Это снижает зависимость от возможности запускать новые процессы при дефиците ресурсов.
+The first snapshot is taken on launch or when the module is enabled; subsequent snapshots occur every five minutes. Snapshots do not overlap. Collection uses system APIs inside the app and does not launch a separate shell or `ps` for each poll. This reduces dependence on starting new processes when resources are scarce.
 
-Zombie определяется по состоянию процесса, а не по его имени, длительности работы или низкому CPU. Данные группируются по родителю. Идентичность процесса включает PID и время его запуска; путь и имя используются для отображения и дополнительной проверки.
+A zombie is identified by process state, not its name, lifetime, or low CPU usage. Data is grouped by parent. Process identity includes PID and start time; path and name provide display information and additional validation.
 
-Список процессов может меняться во время чтения. Исчезнувшая запись пропускается. Недостаточность доступа или невозможность получить достоверный снимок показывается как ошибка, а не как нулевое число zombie.
+The process list may change while being read. Entries that disappear are skipped. Insufficient access or failure to obtain a reliable snapshot is reported as an error rather than a zero zombie count.
 
-### Подтверждение и восстановление
+### Confirmation and recovery
 
-Счётчик превышений ведётся отдельно для каждой идентичности родителя. Успешная проверка с количеством меньше порога сбрасывает счётчик. Ошибка снимка, перезапуск приложения, выключение монитора и смена порога или интервала также сбрасывают последовательность: старые или неполные данные не подтверждают новый инцидент.
+A threshold counter is maintained for each parent identity. A successful check below the threshold resets it. A snapshot error, app restart, disabling monitoring, or changing the threshold or interval also resets the sequence: stale or incomplete data cannot confirm a new incident.
 
-После сна компьютера выполняется один новый снимок без воспроизведения пропущенных опросов; последовательность подтверждения начинается заново. Уже сохранённая история инцидента остаётся доступной.
+After the computer wakes, one fresh snapshot is taken without replaying missed polls; confirmation starts again. Saved incident history remains available.
 
-После третьего превышения открывается инцидент и отправляется уведомление. Последующие успешные снимки обновляют историю без одинаковых уведомлений. Существенным ухудшением считается удвоение количества относительно последнего уведомления по этому инциденту; повторные уведомления ограничены одним за 30 минут.
+The third qualifying check opens an incident and sends a notification. Further successful snapshots update history without duplicate notifications. Significant deterioration means the count has doubled since the last notification for that incident; repeat notifications are limited to one every 30 minutes.
 
-Успешный снимок ниже порога закрывает инцидент по порогу. Это не означает, что все zombie исчезли. Исчезновение родителя закрывает его инцидент, но общая проверка отдельно выясняет, остались ли zombie у другого родителя.
+A successful snapshot below the threshold closes the incident on that basis. This does not mean every zombie has disappeared. A parent disappearing closes its incident, while the overall check separately determines whether zombies remain under other parents.
 
-Порог и интервал доступны в настройках; значения по умолчанию — 40 и 5 минут. Число подтверждений в первой версии фиксировано: три.
+The threshold and interval are configurable; defaults are 40 and five minutes. The first version always requires three confirmations.
 
-## Действия над процессами
+## Process actions
 
-Zombie уже завершён: отправка ему kill не очищает запись. Обычно статус должен забрать его родитель через wait/waitpid; после завершения родителя обработку осиротевших процессов берёт система. Поэтому приложение не предлагает фиктивное действие «убить zombie».
+A zombie has already exited; sending it a kill signal does not remove its entry. Normally, its parent must collect its status through `wait`/`waitpid`; after the parent exits, the system handles orphaned processes. The app therefore offers no ineffective action to kill a zombie.
 
-Перед действием приложение получает свежий снимок и повторно проверяет PID, время запуска, доступные сведения об исполняемом файле и наличие zombie-потомков. Исчезнувший или изменившийся процесс нельзя завершать по устаревшей карточке. Если проверить идентичность невозможно, действие отменяется. При изменении цели нужно новое подтверждение.
+Before acting, the app takes a fresh snapshot and revalidates the PID, start time, available executable information, and presence of zombie children. A process that disappeared or changed cannot be terminated from a stale incident card. If identity cannot be verified, the action is canceled. A changed target requires new confirmation.
 
-Штатное завершение используется первым: для распознанного GUI-приложения — запрос завершения приложения, для отдельного процесса — запрос завершения процесса. Приложение показывает ожидающий результат и проверяет его без блокировки интерфейса. Отсутствие завершения через 15 секунд отображается как незавершённое действие; принудительное завершение автоматически не выполняется.
+Normal termination comes first: an app termination request for a recognized GUI app, or a process termination request for an individual process. The app displays the pending result and checks it without blocking the interface. If the process has not exited after 15 seconds, the action is reported as incomplete; force termination is never automatic.
 
-Принудительное завершение доступно отдельно после свежей проверки и явного подтверждения. Сигналы не отправляются группе процессов, всем процессам с одинаковым именем или PID, найденному по частичному совпадению.
+Force termination is separately available after fresh validation and explicit confirmation. Signals are not sent to process groups, all processes sharing a name, or PIDs found through partial matches.
 
-PID 0, PID 1 и собственный процесс утилиты не являются допустимыми целями. Приложение работает с правами текущего пользователя. Если прав недостаточно, сохраняет отказ и объясняет необходимость обращения к администратору; оно не запускает sudo и не устанавливает привилегированный помощник.
+PID 0, PID 1, and the utility's own process are invalid targets. Process actions run with the current user's permissions. If access is insufficient, the app records the refusal and explains that an administrator is needed. The process action module neither runs `sudo` nor installs a privileged helper.
 
-Штатный перезапуск первой версии применяется только к распознанному GUI-приложению, которое можно снова открыть через его bundle. После подтверждения сначала запрашивается завершение; открытие выполняется только после подтверждённого выхода. Произвольные daemon-процессы, включая cscan, не перезапускаются воспроизведением их аргументов или неизвестных команд служб.
+Normal restart in the first version applies only to recognized GUI apps that can be reopened through their bundles. After confirmation, termination is requested first; reopening happens only after confirmed exit. Arbitrary daemons, including `cscan`, are not restarted by replaying arguments or invoking unknown service commands.
 
-Повторная проверка уменьшает риск повторного использования PID, но дизайн не заявляет полной атомарности между проверкой и отправкой сигнала. При реализации нужно использовать наиболее надёжную поддерживаемую идентификацию цели и явно учитывать оставшееся ограничение.
+Revalidation reduces PID reuse risk but does not make validation and signal delivery completely atomic. Implementation should use the most reliable supported target identification and explicitly account for the remaining limitation.
 
-## Управление сном
+## Sleep control
 
-Модуль хранит одно из трёх состояний: выключен, запрет обычного сна при бездействии, запрет обычного сна при бездействии вместе с гашением экрана. Состояния взаимоисключающие.
+The module stores one of three mutually exclusive states: off, prevent idle system sleep, or prevent both idle system sleep and idle display sleep.
 
-На первом запуске, когда сохранённого выбора ещё нет, используется «Не засыпать» с возможностью погасить экран. Далее всегда восстанавливается последний выбор, включая выключение. Это начальное значение явно видно в меню и может быть немедленно изменено.
+On first launch, with no saved selection, the computer is kept awake while the display may turn off. Subsequent launches restore the last selection, including off. This default is visible in the menu and can be changed immediately.
 
-Запрет действует без таймера, пока пользователь не изменит режим или не выйдет из приложения. На следующем запуске сохранённый режим включается снова. При смене режима предыдущие системные запросы освобождаются. При выходе приложение освобождает принадлежащие ему запросы запрета сна.
+Sleep prevention has no timer and continues until the user changes the mode or quits. The saved mode is enabled again on the next launch. Changing modes releases the previous system assertions. On exit, the app releases the sleep assertions it owns.
 
-Модуль не обещает предотвращать сон при закрытии крышки, критическом заряде батареи, явной команде пользователя или других принудительных системных условиях. Он не отключает блокировку экрана и не изменяет настройки безопасности macOS.
+The ordinary idle-sleep module does not promise to prevent sleep on lid closure, critically low battery, an explicit user Sleep command, or other forced system conditions. It does not disable screen locking or change macOS security settings.
 
-При отказе системного запроса меню показывает фактическое состояние и ошибку, а не только выбранное пожелание пользователя.
+If a system assertion fails, the menu shows the actual state and the error rather than only the user's intended selection.
 
-## Архитектура
+## Architecture
 
-- App/Menu UI: меню, карточки инцидентов, настройки, подтверждения.
-- ProcessSnapshotProvider: получение снимка и проверка идентичности процесса через системные API.
-- ProcessMonitor: расписание, группировка, счётчики подтверждений и жизненный цикл инцидентов.
-- NotificationCoordinator: уведомления, подавление дублей и переход к карточке.
-- DiagnosticsStore: локальная история, срок хранения и экспорт.
-- ProcessActionService: проверка цели, подтверждённые действия, отслеживание результата.
-- SleepController: установка и освобождение принадлежащих приложению запросов запрета сна.
-- Preferences/LaunchAtLogin: сохранённые настройки и согласование фактического состояния автозапуска с macOS.
+- App/Menu UI: menu, incident cards, preferences, and confirmations.
+- ProcessSnapshotProvider: snapshots and process identity validation through system APIs.
+- ProcessMonitor: scheduling, grouping, confirmation counters, and incident lifecycle.
+- NotificationCoordinator: notifications, duplicate suppression, and navigation to incidents.
+- DiagnosticsStore: local history, retention, and export.
+- ProcessActionService: target validation, confirmed actions, and result tracking.
+- SleepController: acquisition and release of app-owned sleep assertions.
+- Preferences/LaunchAtLogin: saved preferences and reconciliation with actual macOS login-item status.
 
-Модули мониторинга и сна независимы. Ошибка одного не выключает другой. Фоновая работа не блокирует UI. Общими остаются только настройки, отображение состояния и локальное журналирование.
+Monitoring and sleep modules are independent. Failure in one does not disable the other. Background work does not block the UI. Only preferences, status display, and local logging are shared.
 
-Новые инструменты добавляются отдельными модулями с явными интерфейсами. Динамическая загрузка плагинов и универсальный framework в первой версии не нужны.
+New tools are separate modules with explicit interfaces. Dynamic plugin loading and a general-purpose framework are unnecessary in the first version.
 
-## Диагностика и хранение
+## Diagnostics and storage
 
-Каталог данных находится в пользовательском Application Support приложения. Данные локальные; доступа к серверу и телеметрии нет.
+Data is stored in the app's user Application Support directory. It remains local; there is no server access or telemetry.
 
-Сохраняются: версия приложения и macOS, время снимка и часовой пояс, доступное общее количество процессов, идентичность родителя, имя и путь, PID и состояния zombie-потомков, динамика количества, ошибки чтения и журнал подтверждённых действий с их результатами.
+Saved fields include app and macOS versions, snapshot time and time zone, available total process count, parent identity, name and path, zombie child PIDs and states, count trends, read errors, and a log of confirmed actions and their results.
 
-Не сохраняются аргументы команд, переменные окружения, содержимое памяти, учётные данные и содержимое пользовательских документов. Путь может содержать имя пользователя; состав экспортируемого отчёта доступен для просмотра до передачи в IT.
+Command arguments, environment variables, memory contents, credentials, and user document contents are not stored. A path may include the username; the report contents can be inspected before sharing with IT.
 
-Экспорт включает читаемый текстовый отчёт и структурированный JSON. Запись выполняется атомарно. Данные старше 30 дней удаляются при запуске и не чаще одного раза в сутки; экспортированные пользователем копии приложение не удаляет. Ошибка сохранения явно показывается: уведомление не утверждает, что отчёт создан, если запись не удалась.
+Export includes a readable text report and structured JSON. Writes are atomic. Data older than 30 days is removed on launch and no more than once per day; the app does not remove user-exported copies. Storage failures are displayed explicitly: a notification does not claim a report was saved when writing failed.
 
-## Автозапуск и разрешения
+## Launch at login and permissions
 
-На первом запуске приложение предлагает macOS зарегистрировать автозапуск и запрашивает разрешение на уведомления. Намерение по умолчанию — включено; системный отказ или отключение пользователем показываются как фактическое состояние. Приложение не обходит системные подтверждения и не включает заново явно отключённый автозапуск при каждом старте.
+On first launch, the app asks macOS to register launch at login and requests notification permission. The default preference is enabled; a system refusal or user disabling it is shown as the actual state. The app does not bypass system confirmation or repeatedly re-enable explicitly disabled launch at login.
 
-Отказ в уведомлениях не останавливает мониторинг и сохранение отчётов: предупреждение остаётся в меню. Приложение не требует административных прав для обычной работы.
+Denying notifications does not stop monitoring or report storage: the warning remains in the menu. Ordinary operation requires no administrator privileges.
 
-## Проверка реализации
+## Implementation verification
 
-Автоматические проверки с искусственными снимками и управляемыми часами:
+Automated checks with synthetic snapshots and controlled clocks cover:
 
-- 39, 40 и 41 zombie; независимые родители; три последовательных превышения.
-- Сброс серии после ошибки, снижения количества, сна и смены настроек.
-- Подавление дублей, удвоение количества и ограничение частоты уведомлений.
-- Исчезновение процесса, повторное использование PID, отказ доступа и отмена подтверждения.
-- Отсутствие автоматического принудительного завершения и повторного запуска нераспознанных служб.
-- Смена режимов сна, освобождение запросов и восстановление выключенного состояния.
-- Ошибки диска, срок хранения, экспорт и исключение аргументов/окружения.
+- Counts of 39, 40, and 41 zombies; independent parents; three consecutive qualifying checks.
+- Sequence reset after an error, lower count, sleep, or preference change.
+- Duplicate suppression, doubled count, and notification rate limiting.
+- Process disappearance, PID reuse, access denial, and canceled confirmation.
+- No automatic force termination or restart of unrecognized services.
+- Sleep mode changes, assertion release, and restoration of the off state.
+- Disk failures, retention, export, and exclusion of arguments and environment variables.
 
-Ручная проверка на macOS:
+Manual macOS checks cover:
 
-- Иконка, настройки, уведомление и открытие соответствующей карточки.
-- Автозапуск после входа и его отключение.
-- Оба режима сна и возврат обычного поведения после отключения/выхода.
-- Небольшой контролируемый тестовый процесс с zombie-потомками, подтверждение завершения и проверка очистки. Реальное Cisco и другие рабочие службы для теста не используются.
+- Icon, preferences, notifications, and opening the corresponding incident card.
+- Launch at login and disabling it.
+- Both idle-sleep modes and restoration of normal behavior after disabling or quitting.
+- A small controlled fixture with zombie children, confirmed termination, and verified cleanup. Real Cisco and other production services are not test targets.
 
-## Критерии готовности
+## Acceptance criteria
 
-Приложение устанавливается и запускается как нативный macOS app. При согласованных порогах монитор создаёт инцидент, уведомление и экспортируемую диагностику, не создавая лавину собственных дочерних процессов. Без подтверждения пользователя процессы не завершаются. Оба режима сна работают и восстанавливаются. Ошибки отображаются честно и независимо по модулям. Проверены автоматические сценарии и ручные сценарии на машине пользователя.
+These criteria define the intended outcome; they do not claim all manual checks have passed. See [VERIFICATION.md](VERIFICATION.md) for actual results.
 
-## Техническое основание
+The app installs and runs as a native macOS app. At the agreed thresholds, monitoring creates an incident, notification, and exportable diagnostics without generating excessive child processes. No processes are terminated without user confirmation. Both idle-sleep modes work and release their assertions correctly. Errors are reported accurately and independently per module. Automated scenarios and manual scenarios on the user's Mac are verified.
 
-Apple, wait/waitpid: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/wait.2.html
+## Technical basis
 
-Перед реализацией конкретные системные API, deployment target и способ упаковки сверяются с установленной macOS/SDK и актуальной документацией Apple; это не меняет согласованное поведение приложения.
+[Apple: wait/waitpid](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/wait.2.html).
 
+Before implementation, specific system APIs, deployment targets, and packaging are checked against the installed macOS/SDK and current Apple documentation. This does not change the agreed app behavior.
 
-## Расширение 2026-10-13: закрытая крышка
+## Extension dated 2026-10-13: closed-lid operation
 
-Исходное ограничение Sleep Control относится к обычным IOKit idle assertions. Отдельный режим закрытой крышки расширяет эту версию приложением-управляемым глобальным SleepDisabled и одобренным root LaunchDaemon. Подробная согласованная спецификация: [closed-lid-design](docs/superpowers/specs/2026-10-13-closed-lid-design.md). Обычный монитор процессов остаётся непривилегированным; административный доступ ограничен управлением SleepDisabled.
+The original sleep control limitation applies to ordinary IOKit idle assertions. A separate closed-lid mode extends the app with an app-managed global `SleepDisabled` setting and an approved root LaunchDaemon. The ordinary process monitor remains unprivileged; administrative access is limited to controlling `SleepDisabled`.
+
+The helper authenticates the app, pins its approved identity, records the original setting in a durable recovery journal, and holds an expiring client lease. It restores the setting when the session ends, expires, or needs crash recovery. This mode is intended for battery and AC operation without an external monitor, but end-to-end and physical verification are still pending. See [closed-lid operation](README.md#closed-lid-operation), [verification](VERIFICATION.md), and the [helper upgrade procedure](RELEASING.md#sleephelper-acceptance-and-upgrades).

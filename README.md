@@ -4,69 +4,71 @@
 [![Release](https://img.shields.io/github/v/release/yuryev89/macos-toolset)](https://github.com/yuryev89/macos-toolset/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Нативная утилита в строке меню macOS 13+ (Swift/SwiftUI + AppKit).
+A native menu bar utility for macOS 13+, built with Swift/SwiftUI and AppKit.
 
-## Установка
+## Installation
 
-Скачать: [GitHub Releases](https://github.com/yuryev89/macos-toolset/releases/latest). Выберите `arm64` для Apple Silicon или `x86_64` для Intel. Для проверки выбранного архива скачайте `SHA256SUMS` и выполните в папке загрузок (для Intel замените `arm64` на `x86_64`):
+Download from [GitHub Releases](https://github.com/yuryev89/macos-toolset/releases/latest). Choose `arm64` for Apple Silicon or `x86_64` for Intel. To verify your archive, download `SHA256SUMS` and run the following in your download directory (replace `arm64` with `x86_64` for Intel):
 
 ```bash
 grep -F '  macOS-Toolset-1.1.0-arm64.zip' SHA256SUMS | shasum -a 256 -c -
 ```
 
-Полная команда `shasum -a 256 -c SHA256SUMS` предназначена для папки, в которую скачаны оба ZIP и оба JSON-файла релиза.
+The full command, `shasum -a 256 -c SHA256SUMS`, requires both ZIP archives and both release JSON files in the same directory.
 
-Версия 1.1.0 выпускается как обычный релиз. Сборки подписаны ad-hoc и не нотарифицированы: macOS может блокировать запуск скачанного приложения. Не отключайте защиту системы; можно собрать приложение локально по инструкции ниже. Developer ID и notarization описаны в [процессе релиза](RELEASING.md).
+Version 1.1.0 is an ordinary release. Its builds are ad-hoc signed and not notarized, so macOS may block the downloaded app. Do not disable system security protections; you can build the app locally using the instructions below. Developer ID signing and notarization are covered in the [release process](RELEASING.md).
 
-Для установки скопируйте `macOS Toolset.app` в `/Applications`. При обновлении сначала выполните процедуру отключения помощника ниже. Не заменяйте приложение при активном режиме закрытой крышки.
+Copy `macOS Toolset.app` to `/Applications`. Before updating, follow the helper removal procedure below. Do not replace the app while closed-lid mode is active.
 
-**Статус закрытой крышки:** функция включена в исходники и доступна в настройках, но полная проверка запуска помощника, восстановления системного сна и сохранения сети на батарее/зарядке ещё не завершена. На машине разработки регистрация старого помощника требует обновления после изменения подписи. Не считайте наличие переключателя гарантией работы с закрытой крышкой. См. [проверки](VERIFICATION.md).
+**Closed-lid status:** the feature is implemented and available in settings, but end-to-end verification of helper activation, system sleep restoration, and continued networking on battery and AC power is still pending. On the development Mac, the old helper registration needs refreshing after its signature changed. The presence of a toggle does not guarantee closed-lid operation. See [verification](VERIFICATION.md).
 
-## Возможности
+## Features
 
-- Проверка zombie-процессов каждые 5 минут внутри приложения, без запуска shell/ps.
-- Инцидент после трёх последовательных проверок с 40+ zombie у одного родителя.
-- Локальные уведомления, история и динамика, JSON/TXT для IT, хранение 30 дней.
-- Завершение родителя только после отдельного подтверждения и проверки PID + времени запуска; принудительное завершение отдельно. Перезапуск — только распознанных GUI-приложений.
-- «Не засыпать», «Не засыпать + экран», выключение; восстановление последнего выбора.
-- Отдельный режим «Работать с закрытой крышкой» с системным помощником macOS; рассчитан на батарею и зарядку без внешнего монитора, полная проверка пока не завершена.
-- Регистрация автозапуска при первом старте через штатный ServiceManagement.
+- Checks for zombie processes every five minutes inside the app, without launching a shell or `ps`.
+- Opens an incident after three consecutive checks find at least 40 zombies under the same parent.
+- Local notifications, history and trends, JSON/TXT export for IT, and 30-day retention.
+- Parent termination requires explicit confirmation and revalidation of its PID and start time. Force termination is a separate action. Restart is supported only for recognized GUI apps.
+- Keep-awake modes for the computer alone or the computer and display, plus an off state; restores the last selection.
+- A separate closed-lid mode with a macOS system helper, intended for battery and AC operation without an external monitor. Full verification is pending.
+- Registers launch at login on first launch through native ServiceManagement APIs.
 
-Zombie уже завершён: отправлять ему kill бессмысленно. Приложение предлагает действие над родителем, которое может прервать работу приложения или VPN. Монитор процессов не требует прав администратора и не завершает процессы автоматически. Отдельному помощнику управления системным сном требуется административное одобрение.
+A zombie has already exited; sending it a kill signal is ineffective. The app offers actions on its parent, which may interrupt an app or VPN. The process monitor needs no administrator privileges and never terminates processes automatically. The separate system sleep helper requires administrative approval.
 
-## Запуск
+## Running the app
 
-Откройте `/Applications/macOS Toolset.app`. Иконка из четырёх квадратов появится в строке меню. При первом запуске открывается панель. Далее панель открывается из меню или повторным открытием приложения.
+Open `/Applications/macOS Toolset.app`. A four-square icon appears in the menu bar. The panel opens on first launch; afterward, open it from the menu or by reopening the app.
 
-Разрешите уведомления в системном запросе macOS. Если автозапуск требует одобрения, откройте Системные настройки → Основные → Объекты входа. Фактическое состояние отображается в разделе «Сон и настройки»; явно отключённый пользователем автозапуск не включается повторно автоматически.
+The app interface currently uses Russian. The control and status names in this documentation are English translations of those labels.
 
-Первый режим сна: компьютер не засыпает от бездействия, экран может погаснуть. После изменения восстанавливается выбранный режим, включая выключение. Закрытие окна оставляет утилиту работающей; «Выход» завершает её и освобождает запрет сна. На следующем запуске выбранный режим снова действует.
+Allow notifications in the macOS prompt. If launch at login requires approval, open System Settings → General → Login Items. The actual status appears under **Sleep and Settings**. Launch at login explicitly disabled by the user is not automatically re-enabled.
 
-Обычные режимы IOKit не обходят закрытие крышки. Новый отдельный режим использует системный SleepDisabled: он запрещает системный сон в целом, включая сон с открытой крышкой и обычную команду сна. Для возвращения обычного сна выключите новый режим. Экран может гаснуть, блокировка экрана остаётся доступной. На батарее увеличивается расход заряда; работа при полном разряде или аппаратном отключении не гарантируется.
+On first launch, the computer is kept awake while the display may turn off. After a change, the selected mode is restored, including the off state. Closing the window leaves the utility running; **Quit** exits and releases its sleep assertions. The selected mode takes effect again on the next launch.
 
-### Работа с закрытой крышкой
+Ordinary IOKit modes do not override lid closure. The separate closed-lid mode uses the system `SleepDisabled` setting to disable system sleep globally, including open-lid sleep and the ordinary Sleep command. Turn this mode off to restore normal sleep. The display may turn off, and screen locking remains available. Battery consumption increases; continued operation after battery depletion or hardware shutdown is not guaranteed.
 
-В разделе «Сон и настройки» включите «Работать с закрытой крышкой». По умолчанию новый режим выключен. При первом включении macOS требует одобрения системного помощника: нажмите соответствующую кнопку и разрешите его в Системных настройках → Основные → Объекты входа и расширения. Затем вернитесь в Toolset. Только статус «Активен» подтверждает успешное применение настройки.
+### Closed-lid operation
 
-Настройка предназначена для батареи и зарядки без внешнего монитора; эти сценарии требуют отдельной физической проверки. Она предотвращает сон Mac; обрывы внешней сети или VPN этим не устраняются. Режим сохраняется для следующего запуска приложения, но помощник не держит запрет без живой сессии приложения.
+Enable **Work with the lid closed** under **Sleep and Settings**. This mode is off by default. On first activation, macOS requires system helper approval: use the corresponding button and allow the helper in System Settings → General → Login Items & Extensions. Return to Toolset afterward. Only the **Active** status confirms that the setting was applied successfully.
 
-Помощник сохраняет исходное значение до изменения, проверяет результат и восстанавливает его при выключении режима, выходе или потере соединения. Приложение продлевает сессию каждые 10 секунд; без ответа 60 секунд помощник запускает восстановление. При его собственном сбое launchd перезапускает помощник, который сначала восстанавливает незавершённую запись. Если исходный SleepDisabled уже был включён другой утилитой, он остаётся включённым после завершения сессии; это показывается явно. При ошибке восстановления приложение сообщает её и не подтверждает обычный сон.
+The setting is intended for battery and AC power without an external monitor; each scenario requires a physical test. It prevents Mac sleep but cannot prevent external network or VPN outages. The preference is saved for the next app launch, but the helper does not keep sleep disabled without a live app session.
 
-Отключать службу или удалять приложение нужно после выключения режима и подтверждённого восстановления. Прямое отключение помощника в macOS может лишить его возможности выполнить очистку. При незавершённом восстановлении верните ему разрешение и повторите выключение. Только если помощник недоступен и вы хотите разрешить сон независимо от исходного значения, администратор может выполнить `sudo /usr/bin/pmset disablesleep 0`.
+The helper records the original value before changing it, verifies the result, and restores it when the mode is disabled, the app exits, or the connection is lost. The app renews its session every 10 seconds; after 60 seconds without renewal, the helper starts restoration. If the helper crashes, launchd restarts it, and it first recovers any unfinished journal entry. If another utility had already enabled `SleepDisabled`, it remains enabled when this session ends; the app reports that explicitly. A restoration failure is displayed as an error rather than confirmation of normal sleep.
 
-Локальная ad-hoc сборка закрепляет точную подпись разрешённого клиента в root-owned `trust.json`; новая сборка требует административного обновления этого доверия. Для обновления: завершите режим, подтвердите восстановление, отключите помощник в Toolset, замените приложение, удалите только `/Library/Application Support/MacOSToolset/ClosedLid/trust.json` с административными правами и заново одобрите помощник. Не удаляйте `recovery.json`, пока восстановление не подтверждено. Файл доверия не содержит ключей или паролей.
+Disable the service or remove the app only after turning off the mode and confirming restoration. Disabling the helper directly in macOS may prevent cleanup. If restoration is incomplete, restore its permission and retry disabling the mode. Only when the helper is unavailable and you want to allow sleep regardless of the original value may an administrator run `sudo /usr/bin/pmset disablesleep 0`.
 
-Опциональная диагностика после установки и одобрения (сначала закройте обычное приложение):
+A local ad-hoc build pins the approved client's exact signature in a root-owned `trust.json`; a new build requires an administrative update of that trust. To update: end the mode, confirm restoration, unregister the helper in Toolset, replace the app, administratively remove only `/Library/Application Support/MacOSToolset/ClosedLid/trust.json`, and approve the helper again. Do not remove `recovery.json` until restoration is confirmed. The trust file contains no keys or passwords.
+
+Optional diagnostics after installation and approval (close the ordinary app first):
 
 ```bash
 swift scripts/closed-lid-smoke.swift
 ```
 
-Она включает/выключает режим только через подписанное приложение, проверяет восстановление после его завершения и истечения сессии. Не запускается обычным `check.sh`. Проверка физически закрытой крышки на батарее и зарядке выполняется отдельно с независимым наблюдением за SSH/TCP и работающей задачей не менее двух минут.
+This check enables and disables the mode only through the signed app and checks restoration after app exit and session expiry. It is not part of ordinary `check.sh`. Physical closed-lid testing on battery and AC power is separate and requires independent observation of SSH/TCP connectivity and a running task for at least two minutes.
 
-## Сборка и проверки
+## Building and checking
 
-Нужны Apple Command Line Tools (Swift 5.9+), полный Xcode не требуется. Внешних пакетов нет.
+Requires Apple Command Line Tools with Swift 5.9 or later. Full Xcode is not required. There are no external packages.
 
 ```bash
 ./scripts/check.sh
@@ -74,35 +76,35 @@ swift scripts/closed-lid-smoke.swift
 open 'dist/macOS Toolset.app'
 ```
 
-`check.sh` запускает проверки логики через исполняемый `CoreChecks` (без XCTest, отсутствующего в некоторых установках CLT) и небольшие C/IOKit smoke-тесты. Smoke-тест создаёт только собственный тестовый процесс и zombie-потомка, завершает его через проверенный TERM и убирает потомка. Cisco и другие рабочие процессы не используются.
+`check.sh` runs logic checks through the `CoreChecks` executable without XCTest, which is missing from some CLT installations, as well as small C/IOKit smoke tests. The process smoke test creates only its own fixture and zombie child, terminates the parent with a revalidated TERM signal, and cleans up the child. Cisco and other production processes are not used.
 
-Сборка создаёт ad-hoc подписанный `.app` для локального использования. Для распространения на другие Mac требуется собственная Developer ID подпись и notarization; это не часть локальной сборки. Не запускайте одновременно несколько копий приложения из разных папок.
+The build creates an ad-hoc signed `.app` for local use. Developer ID signing and notarization for distribution to other Macs require your own credentials and are not part of the default local build. Do not run multiple copies of the app from different directories simultaneously.
 
-## Данные
+## Data
 
-`~/Library/Application Support/MacOSToolset/`: инциденты и журнал. Настройки хранятся в UserDefaults домена `local.macostoolset.app`.
+Incidents and the action log are stored in `~/Library/Application Support/MacOSToolset/`. Preferences use the `local.macostoolset.app` UserDefaults domain.
 
-Отчёты содержат PID, время запуска, имена и пути процессов, количество zombie и журнал действий. Аргументы команд, окружение, память процессов и учётные данные не собираются. Пути могут содержать имя пользователя. Сетевой передачи данных нет. Экспортированные вручную копии приложение не удаляет.
+Reports contain PIDs, start times, process names and paths, zombie counts, and the action log. Command arguments, environment variables, process memory, and credentials are not collected. Paths may contain the username. No data is transmitted over the network. The app does not delete manually exported copies.
 
-При запрете уведомлений монитор продолжает работать; состояние видно в меню. Ошибки доступа, экспорта и системных действий показываются явно. Системное завершение по PID имеет небольшой неустранимый промежуток между повторной проверкой идентичности и сигналом; приложение не заявляет абсолютной атомарности этой операции.
+Monitoring continues if notifications are denied; its status remains visible in the menu. Access, export, and system action errors are reported explicitly. Signaling a process by PID has a small, unavoidable gap between identity revalidation and signal delivery; the app does not claim this operation is completely atomic.
 
-## Структура
+## Structure
 
-- `Sources/ToolsetCore` — детерминированный движок инцидентов, настройки, диагностика и абстракция запрета сна.
-- `Sources/CSnapshot` — системная таблица процессов и повторно проверяемое сигналирование.
-- `Sources/MacOSToolset` — системные службы, актор файловой работы, меню и SwiftUI-панель.
-- `Tests/ToolsetCoreTests` — исполняемые проверки без стороннего тестового framework.
-- `DESIGN.md` — устройство приложения; `RELEASING.md` — процесс выпуска.
+- `Sources/ToolsetCore`: deterministic incident engine, preferences, diagnostics, and sleep assertion abstraction.
+- `Sources/CSnapshot`: system process table and revalidated signaling.
+- `Sources/MacOSToolset`: system services, file-work actor, menu, and SwiftUI panel.
+- `Tests/ToolsetCoreTests`: executable checks without a third-party testing framework.
+- `DESIGN.md`: application design; `RELEASING.md`: release process.
 
-Исходники распространяются под [MIT](LICENSE). Для участия см. [CONTRIBUTING.md](CONTRIBUTING.md).
+Source code is distributed under [MIT](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
-Новые инструменты добавляются отдельными модулями, а не динамическими плагинами.
+New tools are added as separate modules rather than dynamic plugins.
 
-## Основание системных интеграций
+## System integration references
 
 - [Apple: wait/waitpid](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/wait.2.html)
 - [Apple: SMAppService.mainApp](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp)
-- [Apple: запрет гашения экрана](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep)
-- [Apple Darwin: сведения о процессах](https://github.com/apple/darwin-xnu/blob/main/bsd/sys/proc_info.h)
+- [Apple: preventing idle display sleep](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep)
+- [Apple Darwin: process information](https://github.com/apple/darwin-xnu/blob/main/bsd/sys/proc_info.h)
 
-Подробные результаты и ограничения проверки: [VERIFICATION.md](VERIFICATION.md).
+Detailed verification results and limitations: [VERIFICATION.md](VERIFICATION.md).
