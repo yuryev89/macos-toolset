@@ -4,6 +4,7 @@ import ServiceManagement
 import ToolsetCore
 import ClosedLidSupport
 import ClosedLidIPC
+import Darwin
 
 @MainActor final class ClosedLidService: ObservableObject {
     @Published private(set) var status = ClosedLidStatus()
@@ -39,6 +40,7 @@ import ClosedLidIPC
     }
     private func connect() throws -> NSXPCConnection {
         if let connection { return connection }
+        try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
         let helperURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/HelperTools/ClosedLidHelper")
         let hash = try CodeIdentity.verifiedHash(at: helperURL, identifier: ClosedLidConstants.service)
         let peer = NSXPCConnection(machServiceName: ClosedLidConstants.service, options: .privileged)
@@ -67,7 +69,7 @@ import ClosedLidIPC
                 finish(.failure(lidError("Не удалось подключиться к системному помощнику."))); return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                if gate.claim() { peer.invalidate(); continuation.resume(throwing: lidError("Помощник не ответил за 8 секунд. Состояние сна требует проверки.")) }
+                if gate.claim() { peer.invalidate(); continuation.resume(throwing: lidError("Помощник не ответил за 8 секунд. После обновления или перемещения приложения восстановите регистрацию по инструкции README → Helper registration repair. Не удаляйте recovery.json; состояние сна требует проверки.")) }
             }
             send(proxy, finish)
         }
@@ -94,6 +96,7 @@ import ClosedLidIPC
         defer { enabling = false }
         status = ClosedLidStatus(.connecting)
         do {
+            try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
             if service.status == .notRegistered || service.status == .notFound { try service.register() }
             guard service.status == .enabled else {
                 status = ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .error,
@@ -179,6 +182,25 @@ import ClosedLidIPC
                                    message: "Служба: \(service.status.rawValue)")
         }
         return try await read(connect())
+    }
+    // Root-only maintenance is an explicit administrator action; normal removal still
+    // requires the authenticated helper's recovery barrier in removeHelper().
+    func unregisterForAdministrativeRepair() async throws {
+        guard geteuid() == 0, let user = getenv("SUDO_USER"), String(cString: user) != "root",
+              let home = NSHomeDirectoryForUser(String(cString: user)) else {
+            throw lidError("Остановка для восстановления доступна только администратору через repair-helper.sh.")
+        }
+        try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: home))
+        if service.status != .notRegistered && service.status != .notFound { try await service.unregister() }
+    }
+    // This unprivileged command never unregisters a helper or interrupts another lease.
+    func registerInstalledHelper() throws {
+        try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
+        guard !mightOwnSession, !enabling, !removing else { throw lidError("Сначала завершите активную сессию приложения.") }
+        do { try service.register() }
+        catch { if service.status != .requiresApproval { throw error } }
+        status = ClosedLidStatus(service.status == .enabled ? .connecting : .requiresApproval,
+                                 message: "Регистрация обновлена. При необходимости одобрите помощник в macOS, затем проверьте состояние.")
     }
     func removeHelper() async throws {
         guard !removing else { throw lidError("Удаление помощника уже выполняется.") }

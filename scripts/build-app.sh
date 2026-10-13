@@ -16,6 +16,7 @@ cp "$BIN/ClosedLidHelper" "$APP/Contents/Library/HelperTools/ClosedLidHelper"
 cp "$ROOT/Resources/local.macostoolset.closedlid.plist" "$APP/Contents/Library/LaunchDaemons/"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
+cp "$ROOT/scripts/repair-helper.sh" "$APP/Contents/Resources/repair-helper.sh"
 swift "$ROOT/scripts/make-icon.swift" "$ROOT/.build/icon-1024.png"
 for SIZE in 16 32 128 256 512; do
     sips -z "$SIZE" "$SIZE" "$ROOT/.build/icon-1024.png" --out "$ROOT/.build/AppIcon.iconset/icon_${SIZE}x${SIZE}.png" >/dev/null
