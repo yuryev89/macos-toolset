@@ -2,6 +2,16 @@ import Foundation
 import Security
 import Darwin
 public enum CodeIdentity {
+    public static func requireManagedServiceSignature(at url: URL, identifier: String) throws {
+        _ = try verifiedHash(at: url, identifier: identifier)
+        var code: SecStaticCode?, requirement: SecRequirement?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess,
+              SecRequirementCreateWithString("anchor apple generic" as CFString, [], &requirement) == errSecSuccess,
+              let code, let requirement,
+              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess else {
+            throw lidError("Для системного помощника SMAppService нужна Apple-issued подпись приложения и помощника. Эта ad-hoc или неподходящая сборка не поддерживает режим закрытой крышки. Нужна подписанная сборка; повторная регистрация это не исправляет.")
+        }
+    }
     public static func executableURL() throws -> URL {
         // BundleProgram may leave argv[0] relative. Ask the kernel for this process's executable.
         var path = [CChar](repeating: 0, count: 4096)

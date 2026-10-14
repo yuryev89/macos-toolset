@@ -63,8 +63,12 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     static func main() {
         guard geteuid() == 0 else { fputs("ClosedLidHelper must run as an approved system service.\n", stderr); exit(1) }
         do {
+            let repair = CommandLine.arguments.dropFirst().first == "--repair-client-trust"
+            guard CommandLine.arguments.count == 1 || (repair && CommandLine.arguments.count == 2) else { exit(64) }
+            if repair { try ensureServiceUnloaded() }
             let directory = URL(fileURLWithPath: "/Library/Application Support/MacOSToolset/ClosedLid")
             let journal = try RecoveryJournal(directory: directory, secureParents: true)
+            try journal.acquireServiceLock()
             let state = ClosedLidState(backend: PowerSettingBackend(), journal: journal)
             // Cleanup must run even if a later update changes the permitted client signature.
             try? state.recover()
@@ -72,6 +76,13 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             let app = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             guard app.pathExtension == "app" else { throw lidError("Помощник запущен вне установленного приложения.") }
             let currentHash = try CodeIdentity.verifiedHash(at: app, identifier: ClosedLidConstants.appIdentifier)
+            if repair {
+                try HelperInstallation.validate(app: app, home: URL(fileURLWithPath: NSHomeDirectoryForUser(getenv("SUDO_USER").map { String(cString: $0) } ?? "root") ?? "/var/root"))
+                _ = try CodeIdentity.verifiedHash(at: executable, identifier: ClosedLidConstants.service)
+                try HelperInstallation.rebind(hash: currentHash, state: state, journal: journal)
+                print("Restored the recorded sleep baseline and approved this installed app's exact signature. Recovery data was preserved until restoration succeeded.")
+                return
+            }
             let pinned: TrustRecord
             if let data = try journal.readRecord("trust.json") {
                 pinned = try JSONDecoder().decode(TrustRecord.self, from: data)
@@ -91,5 +102,19 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             timer.resume(); listener.resume()
             withExtendedLifetime((delegate, listener, timer)) { RunLoop.current.run() }
         } catch { NSLog("ClosedLidHelper: %@", error.localizedDescription); exit(1) }
+    }
+    private static func ensureServiceUnloaded() throws {
+        let process = Process(), ended = DispatchSemaphore(value: 0)
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "system/" + ClosedLidConstants.service]
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { _ in ended.signal() }
+        try process.run()
+        guard ended.wait(timeout: .now() + 5) == .success else {
+            process.terminate(); throw lidError("Не удалось проверить остановку службы.")
+        }
+        guard process.terminationStatus == 113 else {
+            throw lidError("Сначала остановите зарегистрированную службу через repair-helper.sh. Исправление не выполняется при работающей службе.")
+        }
     }
 }

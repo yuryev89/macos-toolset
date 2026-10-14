@@ -16,6 +16,8 @@ final class ClosedLidIdentityTests {
         sign.arguments = ["--force", "--sign", "-", "--identifier", "local.macostoolset.app", file.path]
         try sign.run(); sign.waitUntilExit(); expectEqual(sign.terminationStatus, 0)
         let hash = try CodeIdentity.verifiedHash(at: file, identifier: "local.macostoolset.app")
+        // A valid ad-hoc signature must not be treated as sufficient for a managed root daemon.
+        expectThrows(try CodeIdentity.requireManagedServiceSignature(at: file, identifier: "local.macostoolset.app"))
         expectTrue(hash.count == 40 || hash.count == 64)
         expectThrows(try CodeIdentity.verifiedHash(at: file, identifier: "other.app"))
         expectThrows(try CodeIdentity.requirement(identifier: "local.macostoolset.app", hash: "anything"))

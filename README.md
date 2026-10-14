@@ -11,12 +11,12 @@ A native menu bar utility for macOS 13+, built with Swift/SwiftUI and AppKit.
 Download from [GitHub Releases](https://github.com/yuryev89/macos-toolset/releases/latest). Choose `arm64` for Apple Silicon or `x86_64` for Intel. To verify your archive, download `SHA256SUMS` and run the following in your download directory (replace `arm64` with `x86_64` for Intel):
 
 ```bash
-grep -F '  macOS-Toolset-1.1.0-arm64.zip' SHA256SUMS | shasum -a 256 -c -
+grep -F '  macOS-Toolset-1.1.1-arm64.zip' SHA256SUMS | shasum -a 256 -c -
 ```
 
 The full command, `shasum -a 256 -c SHA256SUMS`, requires both ZIP archives and both release JSON files in the same directory.
 
-Version 1.1.0 is an ordinary release. Its builds are ad-hoc signed and not notarized, so macOS may block the downloaded app. Do not disable system security protections; you can build the app locally using the instructions below. Developer ID signing and notarization are covered in the [release process](RELEASING.md).
+Builds are ad-hoc signed and not notarized, so macOS may block the downloaded app. Do not disable system security protections; you can build the app locally using the instructions below. Developer ID signing and notarization are covered in the [release process](RELEASING.md). Use the version in your downloaded archive's filename when verifying its checksum.
 
 Copy `macOS Toolset.app` to `/Applications`. Before updating, follow the helper removal procedure below. Do not replace the app while closed-lid mode is active.
 
@@ -67,6 +67,24 @@ swift scripts/closed-lid-smoke.swift
 This check enables and disables the mode only through the signed app and checks restoration after app exit and session expiry. It is not part of ordinary `check.sh`. Physical closed-lid testing on battery and AC power is separate and requires independent observation of SSH/TCP connectivity and a running task for at least two minutes.
 
 ## Building and checking
+
+### Helper registration repair
+
+If an updated or moved app reports a helper timeout, install it in `/Applications` or `~/Applications` and close all running copies first. Launching from Downloads or App Translocation is unsupported for helper registration. Ordinary monitoring remains available.
+
+Version 1.1.1 adds a repair script inside the signed app. Run it explicitly from your signed-in administrator account, substituting your installed path if needed:
+
+```bash
+sudo /bin/bash '/Applications/macOS Toolset.app/Contents/Resources/repair-helper.sh' '/Applications/macOS Toolset.app'
+```
+
+The script verifies both signatures, stops only this app's helper, restores the recorded original sleep setting, and pins the installed app's exact signature only after successful restoration. It prints a registration command to run afterward in your ordinary user session, without `sudo`; registration via `sudo -u` was rejected on the affected Mac. Approve the helper in macOS if requested and reopen the installed app. The repair does not enable closed-lid mode itself. It does not delete recovery data before verified restoration, reset other background items, or disable macOS security protections. If recovery fails, the repair stops and preserves the journal and old trust record; address that error before retrying.
+
+**Signing requirement:** successful registration does not imply that macOS will launch the helper. On the affected macOS 15.6 Mac, the freshly registered ad-hoc helper was rejected by AMFI (`AppleMobileFileIntegrityError -423`, launch constraint violation). Both the app and helper need an appropriate stable signing identity for this ServiceManagement path. Apple recommends the same Apple-issued identity for both; Developer ID Application is the distribution path. An ad-hoc GitHub build cannot provide working closed-lid control on this tested system. See [Apple DTS guidance](https://developer.apple.com/forums/thread/799910). No security protections should be disabled to work around this requirement.
+
+For 1.1.0, use the original upgrade/recovery procedure above; its bundle does not contain this script.
+
+## Build requirements and checks
 
 Requires Apple Command Line Tools with Swift 5.9 or later. Full Xcode is not required. There are no external packages.
 

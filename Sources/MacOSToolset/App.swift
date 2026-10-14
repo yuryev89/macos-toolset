@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import ToolsetCore
+import ClosedLidSupport
 
 private func stallDiagnosticHeartbeat() { _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 66) }
 
@@ -14,6 +15,18 @@ struct ToolsetApplication {
             let probe = ClosedLidService()
             Task { @MainActor in
                 do {
+                    if command == "--closed-lid-validate-installation" {
+                        try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
+                        print("Installed app location verified."); exit(0)
+                    }
+                    if command == "--closed-lid-unregister-for-repair" {
+                        try await probe.unregisterForAdministrativeRepair()
+                        print("Administrative unregister completed; recovery journal remains intact."); exit(0)
+                    }
+                    if command == "--closed-lid-register" {
+                        try probe.registerInstalledHelper()
+                        print(String(decoding: try JSONEncoder().encode(probe.status), as: UTF8.self)); exit(0)
+                    }
                     if command == "--closed-lid-status" {
                         let state = try await probe.inspect()
                         print(String(decoding: try JSONEncoder().encode(state), as: UTF8.self)); exit(0)

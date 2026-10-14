@@ -2,6 +2,22 @@
 
 Versions follow Semantic Versioning. GitHub releases use stable `vMAJOR.MINOR.PATCH` tags.
 
+## [1.1.1] - 2026-10-13
+
+### Fixes
+
+- Reject closed-lid helper registration from Downloads, App Translocation, or other uninstalled locations with actionable installation instructions.
+- Add an explicit administrator-attended helper repair for stale registrations after app updates or relocation. The signed app includes `Contents/Resources/repair-helper.sh`; see the README procedure.
+- Restore and verify the recorded sleep baseline before updating the exact approved client signature. Failed restoration preserves recovery data and the prior trust record.
+- Serialize helper recovery and maintenance with a protected directory lock to prevent concurrent recovery writers.
+- Explain helper timeouts and the repair procedure instead of providing only a generic eight-second error.
+- Check for Apple-issued app/helper signatures before attempting activation or registration; report unsupported ad-hoc builds immediately. Recovery and shutdown remain available independently of this activation gate.
+- Translate all repository documentation into English.
+
+### Verification and limitations
+
+Regression tests exercise installed-location validation, successful and failed recovery before trust changes, and exclusive helper ownership. The local full check suite and signed bundle build pass. Administrative recovery and client trust repair succeeded on the affected Mac. Registration succeeded only from an ordinary user session, without `sudo -u`; macOS then rejected the ad-hoc helper with a launch constraint/code-signing violation. Working closed-lid operation requires appropriate signing and is not provided by the ad-hoc build on this tested system. Physical lid checks remain pending. Builds are not notarized. Read the README before replacing an installation with an active closed-lid session.
+
 ## [1.1.0] - 2026-10-13
 
 First public release of macOS Toolset, a native menu bar utility for macOS 13+.

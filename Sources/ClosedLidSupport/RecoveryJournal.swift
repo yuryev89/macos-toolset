@@ -6,6 +6,19 @@ import ToolsetCore
 public final class RecoveryJournal: ClosedLidJournal {
     private let directoryFD: Int32
     private let owner: uid_t
+    private var serviceLockFD: Int32?
+    public func acquireServiceLock() throws {
+        if serviceLockFD != nil { return }
+        let fd = openat(directoryFD, "helper.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0o600)
+        guard fd >= 0 else { throw lidError("Небезопасный файл блокировки помощника.") }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == owner, info.st_mode & 0o077 == 0, info.st_nlink == 1,
+              flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd); throw lidError("Помощник уже работает или блокировка имеет неверные права. Сначала остановите службу.")
+        }
+        serviceLockFD = fd
+    }
     public init(directory: URL, secureParents: Bool = false) throws {
         owner = geteuid()
         var fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -28,7 +41,7 @@ public final class RecoveryJournal: ClosedLidJournal {
             directoryFD = fd
         } catch { close(fd); throw error }
     }
-    deinit { close(directoryFD) }
+    deinit { if let serviceLockFD { close(serviceLockFD) }; close(directoryFD) }
     private func checkedFile(_ name: String) throws -> Int32? {
         let fd = openat(directoryFD, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         if fd < 0 && errno == ENOENT { return nil }
