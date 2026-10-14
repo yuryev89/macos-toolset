@@ -56,6 +56,10 @@ import Darwin
         peer.interruptionHandler = { [weak peer] in peer?.invalidate() }
         peer.resume(); connection = peer; return peer
     }
+    private func validateManagedSigning() throws {
+        try CodeIdentity.requireManagedServiceSignature(at: Bundle.main.bundleURL, identifier: ClosedLidConstants.appIdentifier)
+        try CodeIdentity.requireManagedServiceSignature(at: Bundle.main.bundleURL.appendingPathComponent("Contents/Library/HelperTools/ClosedLidHelper"), identifier: ClosedLidConstants.service)
+    }
     private func disconnect() {
         let peer = connection; connection = nil; session = nil; peer?.invalidate()
     }
@@ -97,6 +101,7 @@ import Darwin
         status = ClosedLidStatus(.connecting)
         do {
             try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
+            try validateManagedSigning()
             if service.status == .notRegistered || service.status == .notFound { try service.register() }
             guard service.status == .enabled else {
                 status = ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .error,
@@ -196,6 +201,7 @@ import Darwin
     // This unprivileged command never unregisters a helper or interrupts another lease.
     func registerInstalledHelper() throws {
         try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
+        try validateManagedSigning()
         guard !mightOwnSession, !enabling, !removing else { throw lidError("Сначала завершите активную сессию приложения.") }
         do { try service.register() }
         catch { if service.status != .requiresApproval { throw error } }

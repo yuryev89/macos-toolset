@@ -11,6 +11,7 @@ Versions follow Semantic Versioning. GitHub releases use stable `vMAJOR.MINOR.PA
 - Restore and verify the recorded sleep baseline before updating the exact approved client signature. Failed restoration preserves recovery data and the prior trust record.
 - Serialize helper recovery and maintenance with a protected directory lock to prevent concurrent recovery writers.
 - Explain helper timeouts and the repair procedure instead of providing only a generic eight-second error.
+- Check for Apple-issued app/helper signatures before attempting activation or registration; report unsupported ad-hoc builds immediately. Recovery and shutdown remain available independently of this activation gate.
 - Translate all repository documentation into English.
 
 ### Verification and limitations
