@@ -16,8 +16,9 @@ import Darwin
     private var mightOwnSession = false
     private var enabling = false
     private var removing = false
-    var requiresApproval: Bool { service.status == .requiresApproval }
-    var registered: Bool { service.status != .notRegistered && service.status != .notFound }
+    private var hasLocalHelper: Bool { (try? LocalHelperInstallation.isInstalled()) == true }
+    var requiresApproval: Bool { !hasLocalHelper && service.status == .requiresApproval }
+    var registered: Bool { hasLocalHelper || (service.status != .notRegistered && service.status != .notFound) }
     var title: String {
         switch status.phase {
         case .off: return status.baselineDisabled == true ? "Выключен · системный сон запрещён извне" : "Выключен"
@@ -101,12 +102,16 @@ import Darwin
         status = ClosedLidStatus(.connecting)
         do {
             try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
-            try validateManagedSigning()
-            if service.status == .notRegistered || service.status == .notFound { try service.register() }
-            guard service.status == .enabled else {
-                status = ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .error,
-                                         message: "Одобрите системный помощник в настройках macOS и вернитесь в приложение.")
-                return
+            if try !LocalHelperInstallation.isInstalled() {
+                try validateManagedSigning()
+                do {
+                    if service.status == .notRegistered || service.status == .notFound { try service.register() }
+                } catch { if service.status != .requiresApproval { throw error } }
+                guard service.status == .enabled else {
+                    status = ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .error,
+                                             message: "Одобрите системный помощник в настройках macOS и вернитесь в приложение.")
+                    return
+                }
             }
             let peer = try connect()
             mightOwnSession = true
@@ -167,7 +172,7 @@ import Darwin
         }
         guard intent.generation == generation else { return }
         disconnect() // Forces owner-loss cleanup if a begin was in flight or a reply was lost.
-        guard service.status == .enabled else { throw lidError("Помощник отключён в macOS; восстановление сна не подтверждено. Верните ему разрешение и повторите отключение режима.") }
+        guard hasLocalHelper || service.status == .enabled else { throw lidError("Помощник отключён в macOS; восстановление сна не подтверждено. Верните ему разрешение и повторите отключение режима.") }
         let peer = try connect()
         for _ in 0..<16 {
             let result = try await read(peer)
@@ -182,7 +187,7 @@ import Darwin
         throw lidError("Восстановление сна ещё не подтверждено. Повторите отключение режима.")
     }
     func inspect() async throws -> ClosedLidStatus {
-        guard service.status == .enabled else {
+        guard try LocalHelperInstallation.isInstalled() || service.status == .enabled else {
             return ClosedLidStatus(service.status == .requiresApproval ? .requiresApproval : .off,
                                    message: "Служба: \(service.status.rawValue)")
         }
@@ -214,7 +219,8 @@ import Darwin
         defer { removing = false }
         try await shutdown()
         // Every removal checks global recovery, even when this process never owned a lease.
-        guard service.status == .enabled else {
+        let local = try LocalHelperInstallation.isInstalled()
+        guard local || service.status == .enabled else {
             if service.status == .notRegistered { return }
             throw lidError("Для проверки восстановления сна верните помощнику разрешение в macOS.")
         }
@@ -224,6 +230,11 @@ import Darwin
         }
         guard restored.phase == .off || restored.phase == .externalChange else {
             throw lidError("Помощник не подтвердил завершение восстановления сна.")
+        }
+        if local {
+            disconnect()
+            status = ClosedLidStatus(.off, message: "Сон восстановлен; локальный помощник подготовлен к удалению. Завершите удаление через uninstall-local-helper.sh с правами администратора.")
+            return
         }
         try await service.unregister()
         disconnect()

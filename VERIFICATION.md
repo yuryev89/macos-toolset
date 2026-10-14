@@ -30,3 +30,11 @@ On 2026-10-14, the administrator executed the installed repair script. Administr
 The newly registered helper then failed with `OS_REASON_CODESIGNING / Launch Constraint Violation`. AMFI explicitly reported `AppleMobileFileIntegrityError -423`: the file was ad-hoc signed or signed by an unknown certificate chain. No valid code-signing identities are installed. Thus stale registration was one problem, but ad-hoc signing also prevents live helper activation on this tested Mac. Restoration succeeded and SleepDisabled remained false. The script now ends after successful recovery and prints the separate user-session registration step.
 
 Live activation, crash/lease/reboot restoration, and physical closed-lid tests remain blocked by the signing requirement. They must not be marked as passed based on successful registration or unit tests.
+
+## Administrator-managed local helper
+
+An alternative classic LaunchDaemon installation is implemented for local use without an Apple Developer account. It preserves the existing authenticated XPC, journal, and lease logic, while deploying a sanitized root-owned snapshot and separate protected launchd plist. SIP and Gatekeeper are not disabled.
+
+Configuration/marker tests first failed with nine assertions, then passed after validating fixed executable/service fields and root-owned, non-writable, non-symlink records. A further test exposed missing executable ownership validation. The fix sanitizes ACLs/permissions before privileged execution and checks the root executable and ancestors; positive validation uses the actual root-owned `/bin/launchctl` file. macOS returns ENOENT from acl_get_fd_np on an existing descriptor with no ACL; this behavior was verified by read-only probes and handled explicitly.
+
+Full local core/native/IOKit checks and the bundle build are rerun on the final tree. Privileged installation, root XPC activation, restoration, and physical lid checks remain pending until actually exercised.

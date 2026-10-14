@@ -64,10 +64,20 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         guard geteuid() == 0 else { fputs("ClosedLidHelper must run as an approved system service.\n", stderr); exit(1) }
         do {
             let repair = CommandLine.arguments.dropFirst().first == "--repair-client-trust"
-            guard CommandLine.arguments.count == 1 || (repair && CommandLine.arguments.count == 2) else { exit(64) }
-            if repair { try ensureServiceUnloaded() }
+            let prepare = CommandLine.arguments.dropFirst().first == "--prepare-local-install"
+            let directoryOnly = CommandLine.arguments.dropFirst().first == "--prepare-local-directory"
+            guard CommandLine.arguments.count == 1 || ((repair || prepare || directoryOnly) && CommandLine.arguments.count == 2) else { exit(64) }
+            if repair || prepare { try ensureServicesUnloaded() }
             let directory = URL(fileURLWithPath: "/Library/Application Support/MacOSToolset/ClosedLid")
+            var existing = directory
+            while !FileManager.default.fileExists(atPath: existing.path) { existing.deleteLastPathComponent() }
+            try LocalHelperInstallation.validateRootDirectory(existing)
             let journal = try RecoveryJournal(directory: directory, secureParents: true)
+            if directoryOnly {
+                try LocalHelperInstallation.validateRootDirectory(directory.deletingLastPathComponent())
+                try LocalHelperInstallation.validateRootDirectory(URL(fileURLWithPath: "/Library/LaunchDaemons"))
+                print("Protected installation directory verified."); return
+            }
             try journal.acquireServiceLock()
             let state = ClosedLidState(backend: PowerSettingBackend(), journal: journal)
             // Cleanup must run even if a later update changes the permitted client signature.
@@ -75,10 +85,21 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             let executable = try CodeIdentity.executableURL()
             let app = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             guard app.pathExtension == "app" else { throw lidError("Помощник запущен вне установленного приложения.") }
+            if app.path == LocalHelperInstallation.snapshot {
+                guard executable.path == LocalHelperInstallation.program else { throw lidError("Неверный путь локального помощника.") }
+                try LocalHelperInstallation.validateRootExecutable(executable)
+            }
             let currentHash = try CodeIdentity.verifiedHash(at: app, identifier: ClosedLidConstants.appIdentifier)
+            _ = try CodeIdentity.verifiedHash(at: executable, identifier: ClosedLidConstants.service)
+            if prepare {
+                try state.prepareRemoval()
+                print("Sleep recovery verified; protected installation directory ready.")
+                return
+            }
             if repair {
-                try HelperInstallation.validate(app: app, home: URL(fileURLWithPath: NSHomeDirectoryForUser(getenv("SUDO_USER").map { String(cString: $0) } ?? "root") ?? "/var/root"))
-                _ = try CodeIdentity.verifiedHash(at: executable, identifier: ClosedLidConstants.service)
+                if app.path != LocalHelperInstallation.snapshot {
+                    try HelperInstallation.validate(app: app, home: URL(fileURLWithPath: NSHomeDirectoryForUser(getenv("SUDO_USER").map { String(cString: $0) } ?? "root") ?? "/var/root"))
+                }
                 try HelperInstallation.rebind(hash: currentHash, state: state, journal: journal)
                 print("Restored the recorded sleep baseline and approved this installed app's exact signature. Recovery data was preserved until restoration succeeded.")
                 return
@@ -103,10 +124,13 @@ private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             withExtendedLifetime((delegate, listener, timer)) { RunLoop.current.run() }
         } catch { NSLog("ClosedLidHelper: %@", error.localizedDescription); exit(1) }
     }
-    private static func ensureServiceUnloaded() throws {
+    private static func ensureServicesUnloaded() throws {
+        for label in [ClosedLidConstants.service, LocalHelperInstallation.label] { try ensureServiceUnloaded(label) }
+    }
+    private static func ensureServiceUnloaded(_ label: String) throws {
         let process = Process(), ended = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["print", "system/" + ClosedLidConstants.service]
+        process.arguments = ["print", "system/" + label]
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         process.terminationHandler = { _ in ended.signal() }
         try process.run()
