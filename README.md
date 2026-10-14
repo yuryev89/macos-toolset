@@ -20,7 +20,7 @@ Builds are ad-hoc signed and not notarized, so macOS may block the downloaded ap
 
 Copy `macOS Toolset.app` to `/Applications`. Before updating, follow the helper removal procedure below. Do not replace the app while closed-lid mode is active.
 
-**Closed-lid status:** the feature is implemented and available in settings, but end-to-end verification of helper activation, system sleep restoration, and continued networking on battery and AC power is still pending. On the development Mac, the old helper registration needs refreshing after its signature changed. The presence of a toggle does not guarantee closed-lid operation. See [verification](VERIFICATION.md).
+**Closed-lid status:** administrator-managed local helper installation, authenticated activation, and system sleep restoration after normal disable, client exit, and lease expiry passed on the development Mac. Physical closed-lid networking on battery and AC power, plus helper-crash/reboot acceptance, remain pending. The presence of a toggle does not guarantee uninterrupted networking. See [verification](VERIFICATION.md).
 
 ## Features
 
