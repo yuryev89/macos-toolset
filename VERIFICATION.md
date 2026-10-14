@@ -29,7 +29,7 @@ On 2026-10-14, the administrator executed the installed repair script. Administr
 
 The newly registered helper then failed with `OS_REASON_CODESIGNING / Launch Constraint Violation`. AMFI explicitly reported `AppleMobileFileIntegrityError -423`: the file was ad-hoc signed or signed by an unknown certificate chain. No valid code-signing identities are installed. Thus stale registration was one problem, but ad-hoc signing also prevents live helper activation on this tested Mac. Restoration succeeded and SleepDisabled remained false. The script now ends after successful recovery and prints the separate user-session registration step.
 
-Live activation, crash/lease/reboot restoration, and physical closed-lid tests remain blocked by the signing requirement. They must not be marked as passed based on successful registration or unit tests.
+The SMAppService path remains blocked by the signing requirement on this Mac. The local LaunchDaemon acceptance results below apply to the alternative installation path.
 
 ## Administrator-managed local helper
 
@@ -37,4 +37,10 @@ An alternative classic LaunchDaemon installation is implemented for local use wi
 
 Configuration/marker tests first failed with nine assertions, then passed after validating fixed executable/service fields and root-owned, non-writable, non-symlink records. A further test exposed missing executable ownership validation. The fix sanitizes ACLs/permissions before privileged execution and checks the root executable and ancestors; positive validation uses the actual root-owned `/bin/launchctl` file. macOS returns ENOENT from acl_get_fd_np on an existing descriptor with no ACL; this behavior was verified by read-only probes and handled explicitly.
 
-Full local core/native/IOKit checks and the bundle build are rerun on the final tree. Privileged installation, root XPC activation, restoration, and physical lid checks remain pending until actually exercised.
+Full local core/native/IOKit checks and the bundle build passed. GitHub CI passed on native Apple Silicon and Intel for the implementation.
+
+On 2026-10-14, the administrator installed the local helper on the affected macOS 15.6 Apple Silicon Mac. Protected deployment, recorded-baseline restoration, exact client signature approval, and root-owned registration succeeded. launchd reported the helper running from the protected snapshot, and the installed diagnostic client received an authenticated `off` response without the previous eight-second timeout.
+
+With the user's explicit permission, `scripts/closed-lid-smoke.swift` exercised real global SleepDisabled writes through the installed app and root helper. Normal enable/end, abrupt diagnostic client exit, and 60-second lease expiry all passed. Each scenario restored the original disabled=false baseline. During the lease test, authenticated status reported `active` and `pmset -g` reported SleepDisabled=1; after expiry, status was `off` and SleepDisabled=0. The normal GUI remained closed throughout these tests.
+
+Physical lid closure and uninterrupted network/task continuation on AC and battery without an external display remain unverified. Helper-process crash/reboot recovery, delivered GUI interactions, notification delivery, and next-login startup also remain outstanding manual acceptance. These results do not certify those scenarios or every macOS/hardware combination.
