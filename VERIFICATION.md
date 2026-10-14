@@ -25,4 +25,8 @@ New regression checks first failed, then passed after implementing installed-loc
 
 An independent code review identified an unsafe unprivileged refresh/unregister path, which was removed. Registration-only commands cannot stop a helper; administrative interruption requires the explicit root-attended repair script. The reviewer found no remaining Critical/Important issues in those boundaries.
 
-Actual administrative repair, ServiceManagement registration under root and `sudo -u`, fresh launchd activation, and physical closed-lid tests remain pending. These are runtime acceptance requirements, not claims established by unit tests.
+On 2026-10-14, the administrator executed the installed repair script. Administrative unregister, recorded-baseline restoration, and exact client trust rebinding succeeded. Subsequent registration via `sudo -u` failed with Operation not permitted. Running registration directly from the ordinary user session succeeded, and launchd reported bundle build 3.
+
+The newly registered helper then failed with `OS_REASON_CODESIGNING / Launch Constraint Violation`. AMFI explicitly reported `AppleMobileFileIntegrityError -423`: the file was ad-hoc signed or signed by an unknown certificate chain. No valid code-signing identities are installed. Thus stale registration was one problem, but ad-hoc signing also prevents live helper activation on this tested Mac. Restoration succeeded and SleepDisabled remained false. The script now ends after successful recovery and prints the separate user-session registration step.
+
+Live activation, crash/lease/reboot restoration, and physical closed-lid tests remain blocked by the signing requirement. They must not be marked as passed based on successful registration or unit tests.

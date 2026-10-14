@@ -19,5 +19,6 @@ fi
 # The helper refuses concurrent service access and changes trust only after verified recovery.
 # No shell command deletes trust.json or recovery.json.
 "$HELPER" --repair-client-trust
-/usr/bin/sudo -u "$SUDO_USER" "$CLIENT" --closed-lid-register
-echo 'Registration refreshed. Approve the helper in macOS if requested, then reopen the installed app.'
+echo 'Recovery and trust repair completed. Register from your ordinary user session, WITHOUT sudo:'
+printf '\n  "%s" --closed-lid-register\n\n' "$CLIENT"
+echo 'Registration via sudo -u may be rejected by ServiceManagement. Ad-hoc signing is insufficient for the managed system helper on current macOS.'

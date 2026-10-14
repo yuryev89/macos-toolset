@@ -15,7 +15,7 @@ Versions follow Semantic Versioning. GitHub releases use stable `vMAJOR.MINOR.PA
 
 ### Verification and limitations
 
-Regression tests exercise installed-location validation, successful and failed recovery before trust changes, and exclusive helper ownership. The local full check suite and signed bundle build pass. Administrative repair on the affected Mac, fresh helper approval, and physical closed-lid checks are pending; this release does not claim those scenarios have passed. Builds remain ad-hoc signed and not notarized. Read the README before replacing an installation with an active closed-lid session.
+Regression tests exercise installed-location validation, successful and failed recovery before trust changes, and exclusive helper ownership. The local full check suite and signed bundle build pass. Administrative recovery and client trust repair succeeded on the affected Mac. Registration succeeded only from an ordinary user session, without `sudo -u`; macOS then rejected the ad-hoc helper with a launch constraint/code-signing violation. Working closed-lid operation requires appropriate signing and is not provided by the ad-hoc build on this tested system. Physical lid checks remain pending. Builds are not notarized. Read the README before replacing an installation with an active closed-lid session.
 
 ## [1.1.0] - 2026-10-13
 
