@@ -15,6 +15,15 @@ struct ToolsetApplication {
             let probe = ClosedLidService()
             Task { @MainActor in
                 do {
+                    if command == "--closed-lid-validate-root-snapshot" {
+                        guard geteuid() == 0 else { throw lidError("Проверка защищённой копии требует администратора.") }
+                        try LocalHelperInstallation.validateRootExecutable(URL(fileURLWithPath: LocalHelperInstallation.program))
+                        print("Protected root executable verified."); exit(0)
+                    }
+                    if command == "--closed-lid-validate-local-registration" {
+                        guard try LocalHelperInstallation.isInstalled() else { throw lidError("Локальный помощник не установлен.") }
+                        print("Root-owned local registration verified."); exit(0)
+                    }
                     if command == "--closed-lid-validate-installation" {
                         try HelperInstallation.validate(app: Bundle.main.bundleURL, home: URL(fileURLWithPath: NSHomeDirectory()))
                         print("Installed app location verified."); exit(0)
