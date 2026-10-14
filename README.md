@@ -20,7 +20,7 @@ Builds are ad-hoc signed and not notarized, so macOS may block the downloaded ap
 
 Copy `macOS Toolset.app` to `/Applications`. Before updating, follow the helper removal procedure below. Do not replace the app while closed-lid mode is active.
 
-**Closed-lid status:** the feature is implemented and available in settings, but end-to-end verification of helper activation, system sleep restoration, and continued networking on battery and AC power is still pending. On the development Mac, the old helper registration needs refreshing after its signature changed. The presence of a toggle does not guarantee closed-lid operation. See [verification](VERIFICATION.md).
+**Closed-lid status:** administrator-managed local helper installation, authenticated activation, and system sleep restoration after normal disable, client exit, and lease expiry passed on the development Mac. Physical closed-lid networking on battery and AC power, plus helper-crash/reboot acceptance, remain pending. The presence of a toggle does not guarantee uninterrupted networking. See [verification](VERIFICATION.md).
 
 ## Features
 
@@ -48,6 +48,8 @@ Ordinary IOKit modes do not override lid closure. The separate closed-lid mode u
 
 ### Closed-lid operation
 
+For an ad-hoc build without an Apple Developer account, first install the local helper using the administrator procedure below. The app then uses that protected local service instead of SMAppService. Apple-issued builds can use the existing ServiceManagement approval path.
+
 Enable **Work with the lid closed** under **Sleep and Settings**. This mode is off by default. On first activation, macOS requires system helper approval: use the corresponding button and allow the helper in System Settings → General → Login Items & Extensions. Return to Toolset afterward. Only the **Active** status confirms that the setting was applied successfully.
 
 The setting is intended for battery and AC power without an external monitor; each scenario requires a physical test. It prevents Mac sleep but cannot prevent external network or VPN outages. The preference is saved for the next app launch, but the helper does not keep sleep disabled without a live app session.
@@ -68,6 +70,30 @@ This check enables and disables the mode only through the signed app and checks 
 
 ## Building and checking
 
+### Local helper without an Apple Developer account
+
+Install the app in `/Applications` or `~/Applications` and close every running copy. From your signed-in administrator account, run the installer included in the signed app (adjust the app path if needed):
+
+```bash
+sudo /bin/bash '/Applications/macOS Toolset.app/Contents/Resources/install-local-helper.sh' '/Applications/macOS Toolset.app'
+```
+
+The installer unloads only Toolset's old/local service, restores and verifies the recorded sleep baseline, and creates a protected root-owned app snapshot at `/Library/Application Support/MacOSToolset/LocalHelper.app`. It rejects symlinks, strips writable ACLs and group/other write permissions, checks the executable before running it, and pins the approved client's exact signature. A root-owned plist at `/Library/LaunchDaemons/local.macostoolset.closedlid.local.plist` starts the helper. The installer does not enable closed-lid mode; open the installed app and select the mode afterward.
+
+This is an explicit administrator-managed installation using standard launchd facilities. SIP, Gatekeeper, certificate validation, and other system security settings are unchanged. The helper accepts only the pinned app identity. Sessions, heartbeat expiry, and durable restoration work through the existing helper protocol. Administrator approval is needed for installation, updates, and removal; ordinary activation does not need another password. This local path is separate from the Apple-issued signing requirement for SMAppService.
+
+To update, close Toolset, replace the user-facing app, and rerun the installer. It restores the prior baseline before replacing the protected snapshot or trust record. Failed recovery stops deployment and retains the journal. Previous root snapshots remain in the protected staging directory; they are not automatically restored or executed.
+
+To remove the local service, close Toolset and run:
+
+```bash
+sudo /bin/bash '/Applications/macOS Toolset.app/Contents/Resources/uninstall-local-helper.sh' '/Applications/macOS Toolset.app'
+```
+
+Removal unloads the service and deletes only its validated plist after verified restoration. It retains protected snapshots and state records for recovery. Do not manually delete recovery.json or remove a running helper before restoration.
+
+Fresh local installation, authenticated activation, and physical lid behavior require runtime acceptance. See [VERIFICATION.md](VERIFICATION.md) for actual results; compilation or a successful plist installation alone does not prove these scenarios.
+
 ### Helper registration repair
 
 If an updated or moved app reports a helper timeout, install it in `/Applications` or `~/Applications` and close all running copies first. Launching from Downloads or App Translocation is unsupported for helper registration. Ordinary monitoring remains available.
@@ -80,7 +106,7 @@ sudo /bin/bash '/Applications/macOS Toolset.app/Contents/Resources/repair-helper
 
 The script verifies both signatures, stops only this app's helper, restores the recorded original sleep setting, and pins the installed app's exact signature only after successful restoration. It prints a registration command to run afterward in your ordinary user session, without `sudo`; registration via `sudo -u` was rejected on the affected Mac. Approve the helper in macOS if requested and reopen the installed app. The repair does not enable closed-lid mode itself. It does not delete recovery data before verified restoration, reset other background items, or disable macOS security protections. If recovery fails, the repair stops and preserves the journal and old trust record; address that error before retrying.
 
-**Signing requirement:** successful registration does not imply that macOS will launch the helper. On the affected macOS 15.6 Mac, the freshly registered ad-hoc helper was rejected by AMFI (`AppleMobileFileIntegrityError -423`, launch constraint violation). Both the app and helper need an appropriate stable signing identity for this ServiceManagement path. Apple recommends the same Apple-issued identity for both; Developer ID Application is the distribution path. An ad-hoc GitHub build cannot provide working closed-lid control on this tested system. See [Apple DTS guidance](https://developer.apple.com/forums/thread/799910). No security protections should be disabled to work around this requirement.
+**Signing requirement:** successful registration does not imply that macOS will launch the helper. On the affected macOS 15.6 Mac, the freshly registered ad-hoc helper was rejected by AMFI (`AppleMobileFileIntegrityError -423`, launch constraint violation). Both the app and helper need an appropriate stable signing identity for this ServiceManagement path. Apple recommends the same Apple-issued identity for both; Developer ID Application is the distribution path. An ad-hoc GitHub build cannot use this SMAppService path on the tested system; the administrator-managed local helper above provides a separate installation path. See [Apple DTS guidance](https://developer.apple.com/forums/thread/799910). No security protections should be disabled to work around this requirement.
 
 For 1.1.0, use the original upgrade/recovery procedure above; its bundle does not contain this script.
 

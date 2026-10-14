@@ -20,5 +20,5 @@ fi
 # No shell command deletes trust.json or recovery.json.
 "$HELPER" --repair-client-trust
 echo 'Recovery and trust repair completed. Register from your ordinary user session, WITHOUT sudo:'
-printf '\n  "%s" --closed-lid-register\n\n' "$CLIENT"
+printf '\n  %q --closed-lid-register\n\n' "$CLIENT"
 echo 'Registration via sudo -u may be rejected by ServiceManagement. Ad-hoc signing is insufficient for the managed system helper on current macOS.'

@@ -9,7 +9,7 @@ public enum CodeIdentity {
               SecRequirementCreateWithString("anchor apple generic" as CFString, [], &requirement) == errSecSuccess,
               let code, let requirement,
               SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess else {
-            throw lidError("Для системного помощника SMAppService нужна Apple-issued подпись приложения и помощника. Эта ad-hoc или неподходящая сборка не поддерживает режим закрытой крышки. Нужна подписанная сборка; повторная регистрация это не исправляет.")
+            throw lidError("Для системного помощника SMAppService нужна Apple-issued подпись приложения и помощника. Для этой сборки установите локальный помощник через install-local-helper.sh с sudo либо используйте Apple-issued подписанную сборку. Повторная регистрация ad-hoc сборки в SMAppService это не исправляет.")
         }
     }
     public static func executableURL() throws -> URL {
